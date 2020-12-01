@@ -8,7 +8,7 @@ import Head from 'next/head';
 const SingleItemStyles = styled.div`
   max-width: 1200px;
   margin: 2rem auto;
-  box-shadow: ${props => props.theme.bs};
+  box-shadow: ${(props) => props.theme.bs};
   display: grid;
   grid-auto-columns: 1fr;
   grid-auto-flow: column;
@@ -41,7 +41,7 @@ class SingleItem extends Component {
       <Query
         query={SINGLE_ITEM_QUERY}
         variables={{
-          id: this.props.id
+          id: this.props.id,
         }}
       >
         {({ error, loading, data }) => {
@@ -67,4 +67,5 @@ class SingleItem extends Component {
   }
 }
 
+export { SINGLE_ITEM_QUERY };
 export default SingleItem;

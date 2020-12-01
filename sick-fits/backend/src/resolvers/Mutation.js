@@ -1,14 +1,15 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { randomBytes } = require("crypto");
-const { promisify } = require("util");
-const { transport, makeNiceEmail } = require("../mail");
-const { hasPermission } = require("../utils");
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { randomBytes } = require('crypto');
+const { promisify } = require('util');
+const { transport, makeNiceEmail } = require('../mail');
+const { hasPermission } = require('../utils');
+const stripe = require('../stripe');
 
 const Mutations = {
   async createItem(parent, args, ctx, info) {
     if (!ctx.request.userId) {
-      throw new Error("You must be logged in to do that!");
+      throw new Error('You must be logged in to do that!');
     }
 
     const item = await ctx.db.mutation.createItem(
@@ -16,11 +17,11 @@ const Mutations = {
         data: {
           user: {
             connect: {
-              id: ctx.request.userId
-            }
+              id: ctx.request.userId,
+            },
           },
-          ...args
-        }
+          ...args,
+        },
       },
       info
     );
@@ -37,8 +38,8 @@ const Mutations = {
       {
         data: updates,
         where: {
-          id: args.id
-        }
+          id: args.id,
+        },
       },
       info
     );
@@ -49,8 +50,8 @@ const Mutations = {
     const item = await ctx.db.query.item({ where }, `{ id title user { id } }`);
     // check if own item
     const ownsItem = item.user.id === ctx.request.userId;
-    const hasPermission = ctx.request.user.permissions.some(permission =>
-      ["ADMIN", "ITEMDELETE"].includes(permission)
+    const hasPermission = ctx.request.user.permissions.some((permission) =>
+      ['ADMIN', 'ITEMDELETE'].includes(permission)
     );
 
     if (!ownsItem && !hasPermission) {
@@ -68,15 +69,15 @@ const Mutations = {
         data: {
           ...args,
           password,
-          permissions: { set: ["USER"] }
-        }
+          permissions: { set: ['USER'] },
+        },
       },
       info
     );
     const token = jwt.sign({ userId: user.id }, process.env.APP_SECRET);
-    ctx.response.cookie("token", token, {
+    ctx.response.cookie('token', token, {
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 * 365 // 1 year
+      maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
     });
     return user;
   },
@@ -88,22 +89,22 @@ const Mutations = {
     }
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
-      throw new Error("Invalid password");
+      throw new Error('Invalid password');
     }
 
     const token = jwt.sign({ userId: user.id }, process.env.APP_SECRET);
-    ctx.response.cookie("token", token, {
+    ctx.response.cookie('token', token, {
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 * 365 // 1 year
+      maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
     });
 
     return user;
   },
 
   signout(parent, args, ctx, info) {
-    ctx.response.clearCookie("token");
+    ctx.response.clearCookie('token');
 
-    return { message: "Goodbye!" };
+    return { message: 'Goodbye!' };
   },
 
   async requestReset(parent, args, ctx, info) {
@@ -114,21 +115,23 @@ const Mutations = {
     }
 
     const randomBytesPromise = promisify(randomBytes);
-    const resetToken = (await randomBytesPromise(20)).toString("hex");
+    const resetToken = (await randomBytesPromise(20)).toString('hex');
     const resetTokenExpiry = Date.now() + 3600000; // 1 hour from now
     const res = await ctx.db.mutation.updateUser({
       where: { email: args.email },
-      data: { resetToken, resetTokenExpiry }
+      data: { resetToken, resetTokenExpiry },
     });
 
     const mailRes = await transport.sendMail({
-      from: "ophilpott@zonedigital.com",
+      from: 'ophilpott@zonedigital.com',
       to: user.email,
-      subject: "Password Reset",
+      subject: 'Password Reset',
       html: makeNiceEmail(`
           Your password reset token is here!
           \n\n
-          <a href="${process.env.FRONTEND_URL}?resetToken=${resetToken}">Click here to reset</a>`)
+          <a href="${
+            process.env.FRONTEND_URL
+          }?resetToken=${resetToken}">Click here to reset</a>`),
     });
 
     return { mailRes };
@@ -136,30 +139,30 @@ const Mutations = {
 
   async resetPassword(parent, args, ctx, info) {
     if (args.newPassword !== args.confirmPassword) {
-      throw new Error("Password does not match");
+      throw new Error('Password does not match');
     }
 
     const [user] = await ctx.db.query.users({
       where: {
         resetToken: args.resetToken,
-        resetTokenExpiry_gte: Date.now() - 3600000
-      }
+        resetTokenExpiry_gte: Date.now() - 3600000,
+      },
     });
 
     if (!user) {
-      throw new Error("No valid token found");
+      throw new Error('No valid token found');
     }
 
     const password = await bcrypt.hash(args.newPassword, 10);
     const updatedUser = await ctx.db.mutation.updateUser({
       where: { email: user.email },
-      data: { password, resetTokenExpiry: null, resetToken: null }
+      data: { password, resetTokenExpiry: null, resetToken: null },
     });
 
     const token = jwt.sign({ userId: updatedUser.id }, process.env.APP_SECRET);
-    ctx.response.cookie("token", token, {
+    ctx.response.cookie('token', token, {
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 * 365 // 1 year
+      maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
     });
 
     return updatedUser;
@@ -167,30 +170,30 @@ const Mutations = {
 
   async updatePermissions(parent, args, ctx, info) {
     if (!ctx.request.userId) {
-      throw new Error("You must be logged in to do that!");
+      throw new Error('You must be logged in to do that!');
     }
 
     const currentUser = await ctx.db.query.user(
       {
         where: {
-          id: ctx.request.userId
-        }
+          id: ctx.request.userId,
+        },
       },
       info
     );
 
-    hasPermission(currentUser, ["ADMIN", "PERMISSIONUPDATE"]);
+    hasPermission(currentUser, ['ADMIN', 'PERMISSIONUPDATE']);
 
     return ctx.db.mutation.updateUser(
       {
         data: {
           permissions: {
-            set: args.permissions
-          }
+            set: args.permissions,
+          },
         },
         where: {
-          id: args.userId
-        }
+          id: args.userId,
+        },
       },
       info
     );
@@ -200,24 +203,24 @@ const Mutations = {
     const { userId } = ctx.request;
 
     if (!userId) {
-      throw new Error("You must be signed in");
+      throw new Error('You must be signed in');
     }
 
     // Query current cart
     const [existingCartItem] = await ctx.db.query.cartItems({
       where: {
         user: { id: userId },
-        item: { id: args.id }
-      }
+        item: { id: args.id },
+      },
     });
 
     // Check item in cart already (inc by 1 if so)
     if (existingCartItem) {
-      console.log("This is already in the cart");
+      console.log('This is already in the cart');
       return await ctx.db.mutation.updateCartItem(
         {
           where: { id: existingCartItem.id },
-          data: { quantity: existingCartItem.quantity + 1 }
+          data: { quantity: existingCartItem.quantity + 1 },
         },
         info
       );
@@ -228,12 +231,12 @@ const Mutations = {
       {
         data: {
           user: {
-            connect: { id: userId }
+            connect: { id: userId },
           },
           item: {
-            connect: { id: args.id }
-          }
-        }
+            connect: { id: args.id },
+          },
+        },
       },
       info
     );
@@ -242,20 +245,92 @@ const Mutations = {
     const cartItem = await ctx.db.query.cartItem(
       {
         where: {
-          id: args.id
-        }
+          id: args.id,
+        },
       },
       `{ id, user { id }}`
     );
 
-    if (!cartItem) throw new Error("No item found");
+    if (!cartItem) throw new Error('No item found');
 
     if (cartItem.user.id !== ctx.request.userId) {
-      throw new Error("Invalid delete request");
+      throw new Error('Invalid delete request');
     }
 
     return ctx.db.mutation.deleteCartItem({ where: { id: args.id } }, info);
-  }
+  },
+  async createOrder(parent, args, ctx, info) {
+    // query current user and check signed in
+    const { userId } = ctx.request;
+    if (!userId)
+      throw new Error('You must be signed in to complete this order');
+    const user = await ctx.db.query.user(
+      { where: { id: userId } },
+      `{
+            id 
+            name 
+            email 
+            cart { 
+                id 
+                quantity 
+                item {
+                    title 
+                    price 
+                    id 
+                    description 
+                    image 
+                    largeImage
+                }
+            }
+        }`
+    );
+
+    // recalculate total for the price
+    const amount = user.cart.reduce(
+      (tally, cartItem) => tally + cartItem.item.price * cartItem.quantity,
+      0
+    );
+    console.log(`Going to charge ${amount}`);
+
+    // create stripe charge
+    const charge = await stripe.charges.create({
+      amount,
+      currency: 'USD',
+      source: args.token,
+    });
+
+    // convert cart to order items
+    const orderItems = user.cart.map((cartItem) => {
+      const orderItem = {
+        ...cartItem.item,
+        quantity: cartItem.quantity,
+        user: { connect: { id: userId } },
+      };
+      delete orderItem.id;
+      return orderItem;
+    });
+
+    // create order
+    const order = await ctx.db.mutation.createOrder({
+      data: {
+        total: charge.amount,
+        charge: charge.id,
+        items: { create: orderItems },
+        user: { connect: { id: userId } },
+      },
+    });
+
+    // clear users cart, delete cart items
+    const cartItemIds = user.cart.map((cartItem) => cartItem.id);
+    await ctx.db.mutation.deleteManyCartItems({
+      where: {
+        id_in: cartItemIds,
+      },
+    });
+
+    // return order to client
+    return order;
+  },
 };
 
 module.exports = Mutations;
